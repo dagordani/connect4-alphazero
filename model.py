@@ -1,9 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
-from interface import State, Node, MCTS, ROWS, COLS
 
 
 class LayerNorm2d(nn.Module):
@@ -35,7 +33,7 @@ class Block(nn.Module):
         return self.act(self.seq(x) + x)
         
 class Model(nn.Module):
-    def __init__(self, num_channels, kernel_size, num_blocks, rows=6, cols=7):
+    def __init__(self, num_channels, kernel_size, num_blocks, rows, cols):
         super().__init__()
 
         self.C = num_channels
@@ -143,75 +141,3 @@ def compute_loss(v, p, z, pi):
     value_loss = (v - z).pow(2).mean()
     policy_loss = F.cross_entropy(p, pi)
     return value_loss, policy_loss
-
-def play_arena(path1, path2, num_games, num_nodes, search=True, sample=False, sample_first_n=5):
-    """returns terminal state, where -1 is the player than won"""
-    model1 = Model.load(path1)
-    model2 = Model.load(path2)
-
-    def _play_one_game(modelA, modelB):
-        state = State.from_empty_board(ROWS, COLS)
-        model = modelA
-        plies = 0
-        while not state.game_ended:
-
-            if search:
-                root = Node(node_id=0, state=state)
-                tree = MCTS(root=root, model=model, num_nodes=num_nodes, add_noise=False)
-                tree.build_tree()
-                action = tree.choose_move(sample=(sample and plies < sample_first_n))
-            else:
-                # turn state into tensor
-                x = torch.tensor(state.board, dtype=torch.float).reshape(1, 1, ROWS, COLS)
-
-                # fwd pass, mask illegal moves so they get 0 prob
-                _, action_logits = model(x)  # logits shape: [1, 7]
-                for i in list(set(range(COLS)) - set(state.allowed_moves)):
-                    action_logits[0,i] = -np.inf
-                action_probs = F.softmax(action_logits, dim=1)
-            
-                # choose action
-                action = None
-                if sample and plies < sample_first_n:
-                    action = torch.multinomial(action_probs, num_samples=1)[0]
-                else:
-                    action = action_probs.argmax(dim=1)[0]
-
-            # pass turn
-            state = state.transition_state(action)
-            model = modelB if plies % 2 == 0 else modelA
-            plies += 1
-    
-        if state.reward == 0:
-            return 'draw'
-        else:
-            if plies % 2 == 0:
-                return 'B'
-            else:
-                return 'A'
-        
-    outcomes = {"draws": 0, "model 1 wins": 0, "model 2 wins": 0}
-    num_games_model1_starts = num_games // 2
-    num_games_model2_starts = num_games - num_games_model1_starts
-    for _ in range(num_games_model1_starts):
-        out = _play_one_game(model1, model2)
-        if out == 'draw':
-            outcomes['draws'] += 1
-        elif out == 'A':
-            outcomes['model 1 wins'] += 1
-        elif out == 'B':
-            outcomes['model 2 wins'] += 1
-
-    for _ in range(num_games_model2_starts):
-        out = _play_one_game(model2, model1)
-        if out == 'draw':
-            outcomes['draws'] += 1
-        elif out == 'A':
-            outcomes['model 2 wins'] += 1
-        elif out == 'B':
-            outcomes['model 1 wins'] += 1
-    
-    return outcomes
-
-if __name__ == '__main__':
-    pass

@@ -57,3 +57,18 @@ The server is stateless: the client sends the full list of columns played so far
 | POST | `/api/analyse` | `{moves, checkpoint, simulations}` | `{analysis, state}` |
 
 `board[row][col]`: row 0 is the top, `1` = red (moves first), `-1` = yellow, `0` = empty.
+
+
+# TODO:
+* create formal Logs from training
+* create webapp to play vs AI and visualize tree building
+* allow user to select number of games or average positions model was trained on, and number of nodes or moves-look-ahead (tree height - on average) for inference
+* also with/without search and with/without sampling
+
+# fun TODO:
+* print avg height of trees in self-play (need to add self.level attribute to MCTS class)
+* implement training with Apple accelerator
+* do value batching by doing search in parallel and in steplock do inference of 640 nodes (batch_size) in different trees
+* experiment adding data augmentation in get_batch with 50% change
+* experiment training with much larger trees
+* experiment using much larger network / batchnorm in heads / using max(columns) in policy head
