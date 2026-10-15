@@ -1,3 +1,6 @@
+[paths]
+checkpoints_dir = "checkpoints"
+
 [board]
 rows = 6
 cols = 7
@@ -10,19 +13,20 @@ blocks = 4
 [training]
 iterations = 48
 num_games = 64
-tree_size = 300
+tree_size = 5
 batch_size = 640
 num_batches = 10
 buffer_size = 6400
 learning_rate = 0.001
-checkpoint_frequency = 100
+checkpoint_frequency = 2
 eval_num_games = 100
-eval_tree_size = 100
-random_weights_path = checkpoints/random_weights.pt
-best_model_path = checkpoints/checkpoints/i48_2026-10-14_17h02m26s.pt
+eval_tree_size = 5
 self_play_sample_first_n = 10
 eval_arena_sample_first_n = 5
 
 [inference]
 classical_mcts_tree_size = 100
 max_moves_per_sim = 42
+sample = false
+search = true
+neural_mcts_tree_size = 100

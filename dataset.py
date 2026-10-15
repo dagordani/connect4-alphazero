@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from interface import State, Node
+from game_interface import State, Node
 from neural_mcts import NeuralMCTS
 
 
@@ -21,11 +21,13 @@ class Dataset:
         self.yprobs = torch.zeros(buffer_size, cols)
         self.ptr = 0
         self.datapoints = 0
+        self.rows = rows
+        self.cols = cols
 
     def _self_play_game(self, model, num_nodes, sample_first_n):
         """plays one full game with current model and returns list of root nodes for each move and the terminal state board array"""
 
-        state = State.from_empty_board()
+        state = State.from_empty_board(self.rows, self.cols)
         root_nodes = []
         while not state.game_ended:
             # build node from state and store
@@ -57,7 +59,7 @@ class Dataset:
             # actual game statistics
             val = -1 * val
             val_tensor = torch.tensor([val]) # shape: [1]
-            probs = torch.zeros(7)  # shape: [7]
+            probs = torch.zeros(self.cols)  # shape: [7]
             
             # populate prob by the action index so neural net learns consistent distribution
             for action, node in root.children:

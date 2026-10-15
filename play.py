@@ -1,10 +1,15 @@
-from classic_mcts import ClassicalMCTS
+import numpy as np
+import torch
+import torch.nn.functional as F
+from game_interface import State, Node
+from model import Model
+from classical_mcts import ClassicalMCTS
 from neural_mcts import NeuralMCTS
 
 
-def play_vs_classical_MCTS(num_nodes: int, max_sim_plies: int):
+def play_vs_classical_MCTS(rows: int, cols: int, num_nodes: int, max_sim_plies: int):
     plies = 0
-    user_state = State.from_empty_board(ROWS, COLS)
+    user_state = State.from_empty_board(rows, cols)
     while not user_state.game_ended:
         print(f"Plies: {plies}")
         print(user_state)
@@ -39,9 +44,9 @@ def play_vs_classical_MCTS(num_nodes: int, max_sim_plies: int):
             break
     return
 
-def play_vs_neural_MCTS(model: Model, sample: bool, search: bool, num_nodes: int):
+def play_vs_neural_MCTS(rows: int, cols: int, model: Model, sample: bool, search: bool, num_nodes: int):
     plies = 0
-    user_state = State.from_empty_board(ROWS, COLS)
+    user_state = State.from_empty_board(rows, cols)
     while not user_state.game_ended:
         print(f"Plies: {plies}")
         print(user_state)
@@ -68,11 +73,11 @@ def play_vs_neural_MCTS(model: Model, sample: bool, search: bool, num_nodes: int
             ai_action = tree.choose_move(sample=sample)
         else:
             # turn state into tensor
-            x = torch.tensor(ai_state.board, dtype=torch.float).reshape(1, 1, ROWS, COLS)
+            x = torch.tensor(ai_state.board, dtype=torch.float).reshape(1, 1, ai_state.rows, ai_state.cols)
     
             # fwd pass, mask illegal moves so they get 0 prob
             _, action_logits = model(x)  # logits shape: [1, 7]
-            for i in list(set(range(COLS)) - set(ai_state.allowed_moves)):
+            for i in list(set(range(ai_state.cols)) - set(ai_state.allowed_moves)):
                 action_logits[0,i] = -np.inf
             action_probs = F.softmax(action_logits, dim=1)
             

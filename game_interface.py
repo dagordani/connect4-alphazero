@@ -108,6 +108,7 @@ class Node:
         self.w = 0.0  # cumulative reward (float)
         self.parent: Node = None
         self.children: list[tuple[int, Node]] = []
+        self.fully_expanded = False # for classical MCTS
         self.prior = None  # action probs over its children assigned by policy head
         self.evaluated = False  # whether node has been through model's fwd pass
 
@@ -118,4 +119,4 @@ class Node:
         child.children = []
     
     def __repr__(self):
-        return f"id: {self.id}, visit count: {self.n}, value: {self.w}, num_children: {len(self.children)}, prior {self.prior}, evaluated? {self.evaluated}\n{self.state}"
+        return f"id: {self.id}, visit count: {self.n}, value: {self.w}, num_children: {len(self.children)}, fully_expanded? {self.fully_expanded}, prior: {self.prior}, evaluated? {self.evaluated}\n{self.state}"

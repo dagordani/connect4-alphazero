@@ -1,13 +1,18 @@
 import numpy as np
-from data import Dataset
+import torch
+import torch.nn.functional as F
 from datetime import datetime
 import time
+from game_interface import State, Node
+from model import Model
 from neural_mcts import NeuralMCTS
 
 
-def train(model, optimizer, data, loss_fn, cfg):
+def train(model, optimizer, data, loss_fn, cfg, run_dir, best_model_path):
 
     # read config
+    rows = cfg["board"]["rows"]
+    cols = cfg["board"]["cols"]
     iterations = cfg["training"]["iterations"]
     num_games = cfg["training"]["num_games"]
     tree_size = cfg["training"]["tree_size"]
@@ -15,8 +20,7 @@ def train(model, optimizer, data, loss_fn, cfg):
     num_batches = cfg["training"]["num_batches"]
     checkpoint_frequency = cfg["training"]["checkpoint_frequency"]
 
-    random_weights_path = cfg["training"]["random_weights_path"]
-    best_model_path = cfg["training"]["best_model_path"]
+    random_weights_path = run_dir / "random_weights.pt"
     eval_num_games = cfg["training"]["eval_num_games"]
     eval_tree_size = cfg["training"]["eval_tree_size"]
 
@@ -59,13 +63,13 @@ def train(model, optimizer, data, loss_fn, cfg):
         if i % checkpoint_frequency == 0:
             # save checkpoint
             cur_date_time = datetime.now().strftime("%Y-%m-%d_%Hh%Mm%Ss")
-            path = CHECKPOINTS_PATH / f"i{i}_{cur_date_time}.pt"
+            path = run_dir / f"i{i}_{cur_date_time}.pt"
             model.save(path)
 
             # evaluate in arena
             print("===== eval starts =====")
-            rand = play_arena(cur_model_path, random_weights_path, num_games=eval_num_games, num_nodes=eval_tree_size, search=True, sample=True, sample_first_n=eval_sample_first_n)
-            best = play_arena(cur_model_path, best_model_path, num_games=eval_num_games, num_nodes=eval_tree_size, search=True, sample=True, sample_first_n=eval_sample_first_n)
+            rand = play_arena(path, random_weights_path, rows=rows, cols=cols, num_games=eval_num_games, num_nodes=eval_tree_size, search=True, sample=True, sample_first_n=eval_sample_first_n)
+            best = play_arena(path, best_model_path, rows=rows, cols=cols, num_games=eval_num_games, num_nodes=eval_tree_size, search=True, sample=True, sample_first_n=eval_sample_first_n)
             rand_win_rate = rand['model 1 wins'] / (eval_num_games - rand['draws'])
             best_win_rate = best['model 1 wins'] / (eval_num_games - best['draws'])
             print(f"iter: {i}. Outcome vs random model: {rand}, {rand_win_rate*100}% win. Outcome vs previous best model (path {best_model_path}): {best}, {best_win_rate*100}% win")
@@ -75,7 +79,7 @@ def train(model, optimizer, data, loss_fn, cfg):
             if best_win_rate >= 0.6:
                 best_model_path = path
 
-def play_arena(path1, path2, num_games, num_nodes, search=True, sample=False, sample_first_n=5):
+def play_arena(path1, path2, rows, cols, num_games, num_nodes, search=True, sample=False, sample_first_n=5):
     """
     plays one model against another
     returns terminal state, where -1 is the player than won
@@ -91,7 +95,8 @@ def play_arena(path1, path2, num_games, num_nodes, search=True, sample=False, sa
     model2 = Model.load(path2)
 
     def _play_one_game(modelA, modelB):
-        state = State.from_empty_board(ROWS, COLS)
+        
+        state = State.from_empty_board(rows, cols)
         model = modelA
         plies = 0
         while not state.game_ended:
@@ -103,11 +108,11 @@ def play_arena(path1, path2, num_games, num_nodes, search=True, sample=False, sa
                 action = tree.choose_move(sample=(sample and plies < sample_first_n))
             else:
                 # turn state into tensor
-                x = torch.tensor(state.board, dtype=torch.float).reshape(1, 1, ROWS, COLS)
+                x = torch.tensor(state.board, dtype=torch.float).reshape(1, 1, state.rows, state.cols)
 
                 # fwd pass, mask illegal moves so they get 0 prob
                 _, action_logits = model(x)  # logits shape: [1, 7]
-                for i in list(set(range(COLS)) - set(state.allowed_moves)):
+                for i in list(set(range(state.cols)) - set(state.allowed_moves)):
                     action_logits[0,i] = -np.inf
                 action_probs = F.softmax(action_logits, dim=1)
             
