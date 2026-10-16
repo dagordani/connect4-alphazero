@@ -1,0 +1,31 @@
+{
+  "rows": 6,
+  "cols": 7,
+  "maxSimPlies": 42,
+  "levels": [
+    {
+      "id": "easy",
+      "name": "Easy",
+      "games": 768,
+      "model": "models/easy.onnx"
+    },
+    {
+      "id": "medium",
+      "name": "Medium",
+      "games": 1536,
+      "model": "models/medium.onnx"
+    },
+    {
+      "id": "hard",
+      "name": "Hard",
+      "games": 2304,
+      "model": "models/hard.onnx"
+    },
+    {
+      "id": "expert",
+      "name": "Expert",
+      "games": 3072,
+      "model": "models/expert.onnx"
+    }
+  ]
+}

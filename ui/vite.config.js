@@ -1,13 +1,10 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// In development the API lives on the Node server (server/), so proxy /api there.
-// Override with API_TARGET if the server runs on another port.
+// The engine runs in the browser (src/engine/worker.js). Vite bundles onnxruntime-web's
+// WASM runtime as an asset, so the site needs no CDN and no server.
 export default defineConfig({
   plugins: [react()],
-  server: {
-    proxy: {
-      '/api': process.env.API_TARGET ?? 'http://127.0.0.1:3001',
-    },
-  },
+  worker: { format: 'es' },
+  optimizeDeps: { exclude: ['onnxruntime-web'] },
 });

@@ -1,7 +1,8 @@
-"""Engine process for the web UI: answers JSON requests with the AlphaZero search.
+"""Python reference engine: answers JSON requests with the AlphaZero search.
 
-The Node server (server/) starts this once and talks to it over stdin/stdout,
-one JSON object per line:
+The website runs a JavaScript port of this engine in the browser (ui/src/engine/).
+This file is the reference it is tested against: ui/scripts/parity.mjs starts it
+and sends requests over stdin/stdout, one JSON object per line:
 
     request:  {"id": 7, "cmd": "move", "moves": [3, 3, 2], "opponent": "neural",
                "level": "medium", "simulations": 100}

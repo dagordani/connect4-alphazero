@@ -9,7 +9,7 @@ import { capitalize } from './game.js';
 import { TreeReplay } from './tree.js';
 
 // The API is stateless: this component owns the list of columns played (`moves`)
-// and sends it with every request. `game` is the server's description of the
+// and sends it with every request. `game` is the engine's description of the
 // position after those moves.
 
 // Default opponent: the easiest loadable level.
@@ -69,7 +69,7 @@ export default function App() {
   const tree = replayRef.current;
   const live = liveAnalysis(analysis, tree);
 
-  // Serialise server calls: a search can take a while and clicks arrive fast.
+  // Serialise engine calls: a search can take a while and clicks arrive fast.
   async function run(task) {
     if (busyRef.current) return;
     busyRef.current = true;

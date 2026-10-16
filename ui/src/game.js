@@ -1,6 +1,6 @@
-// Board helpers. The server sends the board in absolute colours:
+// Board helpers. The engine describes the board in absolute colours:
 // board[row][col], row 0 = top, +1 = red (moves first), -1 = yellow, 0 = empty.
-// The board size comes from the server (config.toml), so it is read off the board itself.
+// The board size comes from the engine (config.toml), so it is read off the board itself.
 
 export const COLOR = { 1: 'red', [-1]: 'yellow' };
 
