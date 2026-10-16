@@ -1,24 +1,16 @@
 // Opponent settings and game buttons.
 
-function checkpointLabel(ck) {
-  if (ck.iter == null) return ck.name.replace(/_/g, ' ');
-  const m = ck.name.match(/_(\d{4}-\d{2}-\d{2})_(\d{2})h(\d{2})m/);
-  return m ? `iter ${ck.iter} · ${m[1]} ${m[2]}:${m[3]}` : `iter ${ck.iter}`;
-}
-
-function groupByDir(checkpoints) {
-  const groups = new Map();
-  for (const ck of checkpoints) {
-    if (!groups.has(ck.dir)) groups.set(ck.dir, []);
-    groups.get(ck.dir).push(ck);
-  }
-  return [...groups.entries()];
-}
+const OPPONENTS = [
+  ['neural', 'Neural MCTS'],
+  ['classical', 'Classical MCTS'],
+];
 
 export default function Controls({
-  checkpoints,
-  checkpoint,
-  onCheckpoint,
+  opponent,
+  onOpponent,
+  levels,
+  level,
+  onLevel,
   human,
   onHuman,
   simulations,
@@ -35,29 +27,53 @@ export default function Controls({
   onEngineMove,
   onHint,
 }) {
-  const current = checkpoints.find((c) => c.id === checkpoint);
+  const current = levels.find((lv) => lv.id === level);
+  const neural = opponent === 'neural';
+  const anyLevel = levels.some((lv) => lv.ok);
 
   return (
     <section className="panel">
       <h2>Opponent</h2>
 
-      <label htmlFor="checkpoint">Checkpoint</label>
-      <select id="checkpoint" value={checkpoint} disabled={busy} onChange={(e) => onCheckpoint(e.target.value)}>
-        {groupByDir(checkpoints).map(([dir, cks]) => (
-          <optgroup key={dir} label={dir}>
-            {cks.map((ck) => (
-              <option key={ck.id} value={ck.id} disabled={!ck.ok} title={ck.ok ? ck.id : ck.error}>
-                {checkpointLabel(ck)}
-                {ck.ok ? '' : ' (incompatible)'}
-              </option>
-            ))}
-          </optgroup>
+      <div className="segmented">
+        {OPPONENTS.map(([value, text]) => (
+          <button
+            key={value}
+            className={opponent === value ? 'on' : ''}
+            disabled={busy || (value === 'neural' && !anyLevel)}
+            title={value === 'neural' && !anyLevel ? 'no difficulty level could be loaded' : undefined}
+            onClick={() => opponent !== value && onOpponent(value)}
+          >
+            {text}
+          </button>
         ))}
-      </select>
-      {current?.config && (
-        <div className="meta">
-          {current.config.num_channels} channels × {current.config.num_blocks} blocks
-        </div>
+      </div>
+      <div className="meta">
+        {neural
+          ? 'Tree search guided by the trained network'
+          : 'Pure tree search with random rollouts: no neural network'}
+      </div>
+
+      {neural && (
+        <>
+          <label>Difficulty</label>
+          <div className="segmented">
+            {levels.map((lv) => (
+              <button
+                key={lv.id}
+                className={level === lv.id ? 'on' : ''}
+                disabled={busy || !lv.ok}
+                title={lv.ok ? undefined : lv.error}
+                onClick={() => level !== lv.id && onLevel(lv.id)}
+              >
+                {lv.name}
+              </button>
+            ))}
+          </div>
+          {current && (
+            <div className="meta">Network trained on {current.games.toLocaleString()} self-play games</div>
+          )}
+        </>
       )}
 
       <label>You play</label>
@@ -79,13 +95,19 @@ export default function Controls({
       <input
         id="sims"
         type="number"
-        min="0"
+        min={neural ? 0 : 1}
         max="10000"
         step="25"
         value={simulations}
-        onChange={(e) => onSimulations(Math.max(0, Math.min(10000, parseInt(e.target.value, 10) || 0)))}
+        onChange={(e) =>
+          onSimulations(Math.max(neural ? 0 : 1, Math.min(10000, parseInt(e.target.value, 10) || 0)))
+        }
       />
-      <div className="meta">0 = no search: the network's policy picks the move</div>
+      <div className="meta">
+        {neural
+          ? "0 = no search: the network's policy picks the move"
+          : 'Each simulation adds one node and plays one random game from it'}
+      </div>
 
       <label>Engine move choice</label>
       <div className="segmented">
@@ -100,8 +122,8 @@ export default function Controls({
       </div>
       <div className="meta">
         {sample
-          ? 'Random, in proportion to the visit counts (to the policy with 0 simulations)'
-          : 'Always the most-visited move (highest prior with 0 simulations)'}
+          ? `Random, in proportion to the visit counts${neural ? ' (to the policy with 0 simulations)' : ''}`
+          : `Always the most-visited move${neural ? ' (highest prior with 0 simulations)' : ''}`}
       </div>
 
       <label className="check">

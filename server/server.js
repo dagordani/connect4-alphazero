@@ -1,12 +1,16 @@
 // HTTP server for the Connect 4 UI. Node 20, no dependencies.
 //
-//   GET  /api/checkpoints                                  checkpoint files and whether they load
+//   GET  /api/levels                                       difficulty levels, whether they load, board size
 //   POST /api/state    {moves}                             describe a position
-//   POST /api/move     {moves, checkpoint, simulations, sample}  engine picks and plays a move
-//   POST /api/analyse  {moves, checkpoint, simulations}          search without playing (hint)
+//   POST /api/move     {moves, opponent, level, simulations, sample}  engine picks and plays a move
+//   POST /api/analyse  {moves, opponent, level, simulations}          search without playing (hint)
 //
+// `opponent` is "neural" (default; NeuralMCTS with the network of `level`) or "classical"
+// (ClassicalMCTS: pure search with random rollouts, no network, no level).
+// The levels are defined in config.toml ([[levels]]).
 // `sample: true` makes the engine draw its move in proportion to the visit
 // counts (or the policy, with simulations 0) instead of playing the best one.
+// The board size comes from config.toml; the engine checks moves against it.
 //
 // The API is stateless: the browser keeps the list of columns played and sends
 // it with every request. Everything else is served from ../ui/dist (the built
@@ -27,6 +31,8 @@ const HOST = process.env.HOST ?? '127.0.0.1';
 const PORT = Number(process.env.PORT ?? 3001);
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_SIMULATIONS = 10000;
+const MAX_MOVES = 400; // sanity cap only: the engine checks moves against the configured board
+const OPPONENTS = ['neural', 'classical'];
 
 const engine = new EngineProcess(PROJECT_DIR);
 
@@ -58,22 +64,26 @@ function validMoves(moves) {
   if (moves === undefined) return [];
   const ok =
     Array.isArray(moves) &&
-    moves.length <= 42 &&
-    moves.every((m) => Number.isInteger(m) && m >= 0 && m <= 6);
-  if (!ok) throw new HttpError(400, '`moves` must be an array of at most 42 columns (0-6)');
+    moves.length <= MAX_MOVES &&
+    moves.every((m) => Number.isInteger(m) && m >= 0);
+  if (!ok) throw new HttpError(400, '`moves` must be an array of column numbers');
   return moves;
 }
 
 function searchParams(body) {
   const moves = validMoves(body.moves);
-  if (typeof body.checkpoint !== 'string' || body.checkpoint.length === 0 || body.checkpoint.length > 300) {
-    throw new HttpError(400, '`checkpoint` must be a checkpoint id from /api/checkpoints');
+  const opponent = body.opponent ?? 'neural';
+  if (!OPPONENTS.includes(opponent)) throw new HttpError(400, '`opponent` must be "neural" or "classical"');
+  const neural = opponent === 'neural';
+  if (neural && (typeof body.level !== 'string' || body.level.length === 0 || body.level.length > 50)) {
+    throw new HttpError(400, '`level` must be a level id from /api/levels');
   }
   const simulations = body.simulations ?? 100;
-  if (!Number.isInteger(simulations) || simulations < 0 || simulations > MAX_SIMULATIONS) {
-    throw new HttpError(400, `\`simulations\` must be an integer in 0..${MAX_SIMULATIONS}`);
+  const minSimulations = neural ? 0 : 1; // classical has no policy to fall back on
+  if (!Number.isInteger(simulations) || simulations < minSimulations || simulations > MAX_SIMULATIONS) {
+    throw new HttpError(400, `\`simulations\` must be an integer in ${minSimulations}..${MAX_SIMULATIONS}`);
   }
-  return { moves, checkpoint: body.checkpoint, simulations };
+  return neural ? { moves, opponent, level: body.level, simulations } : { moves, opponent, simulations };
 }
 
 function sendJson(res, status, payload) {
@@ -84,7 +94,7 @@ function sendJson(res, status, payload) {
 
 // --- API -----------------------------------------------------------------------
 const routes = {
-  'GET /api/checkpoints': () => engine.request('checkpoints'),
+  'GET /api/levels': () => engine.request('levels'),
   'POST /api/state': async (req) => engine.request('state', { moves: validMoves((await readJson(req)).moves) }),
   'POST /api/move': async (req) => {
     const body = await readJson(req);

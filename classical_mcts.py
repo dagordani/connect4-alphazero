@@ -36,7 +36,8 @@ class ClassicalMCTS:
                 UCT_criteria[a] = criteria
 
             # choose best child
-            node = node.children[UCT_criteria.argmax()]
+            action = UCT_criteria.argmax()
+            node = next(c for a, c in node.children if a == action)
 
         return node
 

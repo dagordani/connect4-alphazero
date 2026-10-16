@@ -25,8 +25,34 @@ self_play_sample_first_n = 10
 eval_arena_sample_first_n = 5
 
 [inference]
-classical_mcts_tree_size = 100
+classical_mcts_tree_size = 1000
 max_moves_per_sim = 42
 sample = false
 search = true
 neural_mcts_tree_size = 100
+
+# difficulty levels offered in the web UI (engine.py), easiest first
+# checkpoints are run_01 iterations 12/24/36/48 at 64 self-play games per iteration
+[[levels]]
+id = "easy"
+name = "Easy"
+checkpoint = "models/768games.pt"
+games = 768
+
+[[levels]]
+id = "medium"
+name = "Medium"
+checkpoint = "models/1536games.pt"
+games = 1536
+
+[[levels]]
+id = "hard"
+name = "Hard"
+checkpoint = "models/2304games.pt"
+games = 2304
+
+[[levels]]
+id = "expert"
+name = "Expert"
+checkpoint = "models/3072games.pt"
+games = 3072

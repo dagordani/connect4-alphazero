@@ -10,15 +10,23 @@ import { capitalize } from './game.js';
 // and sends it with every request. `game` is the server's description of the
 // position after those moves.
 
-// Default opponent: the newest loadable checkpoint (last folder, highest iteration).
-function defaultCheckpoint(checkpoints) {
-  const ok = checkpoints.filter((c) => c.ok);
-  return ok.length ? ok[ok.length - 1].id : '';
+// Default opponent: the easiest loadable level.
+function defaultLevel(levels) {
+  return levels.find((lv) => lv.ok)?.id ?? '';
 }
 
+// Classical MCTS needs no network; neural MCTS needs a level.
+const hasEngine = (s) => s.opponent === 'classical' || Boolean(s.level);
+
 export default function App() {
-  const [checkpoints, setCheckpoints] = useState([]);
-  const [settings, setSettings] = useState({ checkpoint: '', human: 'red', simulations: 100, sample: false });
+  const [levels, setLevels] = useState([]);
+  const [settings, setSettings] = useState({
+    opponent: 'neural',
+    level: '',
+    human: 'red',
+    simulations: 100,
+    sample: false,
+  });
   const [autoReply, setAutoReply] = useState(true);
   const [moves, setMoves] = useState([]);
   const [game, setGame] = useState(null);
@@ -53,7 +61,7 @@ export default function App() {
   }
 
   async function engineMove(current, s) {
-    const res = await api.move(current, s.checkpoint, s.simulations, s.sample);
+    const res = await api.move(current, s);
     show([...current, res.move], res.state, res.analysis, true);
   }
 
@@ -61,7 +69,7 @@ export default function App() {
   async function newGame(s) {
     const state = await api.state([]);
     show([], state, null, false);
-    if (s.checkpoint && state.turn !== s.human) await engineMove([], s);
+    if (hasEngine(s) && state.turn !== s.human) await engineMove([], s);
   }
 
   // Changing the opponent or your side starts a new game with the new settings.
@@ -75,11 +83,12 @@ export default function App() {
     if (started.current) return; // StrictMode runs effects twice in development
     started.current = true;
     run(async () => {
-      const list = await api.checkpoints();
-      setCheckpoints(list);
-      const s = { ...settings, checkpoint: defaultCheckpoint(list) };
+      const list = await api.levels();
+      setLevels(list);
+      const level = defaultLevel(list);
+      // without a usable level, start against the pure-search opponent instead
+      const s = { ...settings, level, opponent: level ? settings.opponent : 'classical' };
       setSettings(s);
-      if (!s.checkpoint) throw new Error('no loadable checkpoint found in checkpoints*/');
       await newGame(s);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -109,7 +118,7 @@ export default function App() {
 
   function hint() {
     run(async () => {
-      const res = await api.analyse(moves, settings.checkpoint, settings.simulations);
+      const res = await api.analyse(moves, settings);
       setAnalysis(res.analysis);
     });
   }
@@ -135,9 +144,14 @@ export default function App() {
 
       <aside className="side">
         <Controls
-          checkpoints={checkpoints}
-          checkpoint={settings.checkpoint}
-          onCheckpoint={(checkpoint) => changeSettings({ checkpoint }, true)}
+          opponent={settings.opponent}
+          onOpponent={(opponent) =>
+            // classical has no policy-only mode, so 0 simulations becomes 1
+            changeSettings({ opponent, simulations: opponent === 'classical' ? Math.max(1, settings.simulations) : settings.simulations }, true)
+          }
+          levels={levels}
+          level={settings.level}
+          onLevel={(level) => changeSettings({ level }, true)}
           human={settings.human}
           onHuman={(human) => changeSettings({ human }, true)}
           simulations={settings.simulations}
@@ -148,7 +162,7 @@ export default function App() {
           onAutoReply={setAutoReply}
           busy={busy}
           canUndo={moves.length > 0}
-          canEngineMove={Boolean(game && !game.over && settings.checkpoint)}
+          canEngineMove={Boolean(game && !game.over && hasEngine(settings))}
           onNewGame={() => run(() => newGame(settings))}
           onUndo={undo}
           onEngineMove={() => run(() => engineMove(moves, settings))}

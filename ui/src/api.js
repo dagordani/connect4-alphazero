@@ -13,8 +13,11 @@ async function request(path, body) {
 }
 
 export const api = {
-  checkpoints: () => request('/api/checkpoints').then((d) => d.checkpoints),
+  levels: () => request('/api/levels').then((d) => d.levels),
   state: (moves) => request('/api/state', { moves }),
-  move: (moves, checkpoint, simulations, sample) => request('/api/move', { moves, checkpoint, simulations, sample }),
-  analyse: (moves, checkpoint, simulations) => request('/api/analyse', { moves, checkpoint, simulations }),
+  // `s` is the opponent settings: { opponent: 'neural' | 'classical', level, simulations, sample }
+  move: (moves, s) =>
+    request('/api/move', { moves, opponent: s.opponent, level: s.level, simulations: s.simulations, sample: s.sample }),
+  analyse: (moves, s) =>
+    request('/api/analyse', { moves, opponent: s.opponent, level: s.level, simulations: s.simulations }),
 };

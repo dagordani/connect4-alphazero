@@ -102,5 +102,5 @@ export class EngineProcess {
 }
 
 // An error the engine reported about the request itself (illegal move, unknown
-// checkpoint, ...), as opposed to the engine crashing.
+// level, ...), as opposed to the engine crashing.
 export class EngineError extends Error {}

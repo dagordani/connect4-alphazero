@@ -3,7 +3,8 @@
 The Node server (server/) starts this once and talks to it over stdin/stdout,
 one JSON object per line:
 
-    request:  {"id": 7, "cmd": "move", "moves": [3, 3, 2], "checkpoint": "checkpoints_64_4/i3_....pt", "simulations": 100}
+    request:  {"id": 7, "cmd": "move", "moves": [3, 3, 2], "opponent": "neural",
+               "level": "medium", "simulations": 100}
     reply:    {"id": 7, "ok": true, "result": {...}}   or   {"id": 7, "ok": false, "error": "..."}
 
 It is stateless: every request carries the full list of columns played so far,
@@ -11,85 +12,94 @@ and the game is replayed from the empty board with State.transition_state, which
 also checks that every move is legal. Undo is just a shorter list.
 
 Commands:
-    checkpoints                              list checkpoint files and whether they load
+    levels                                   list difficulty levels, whether they load, and the board size
     state     {moves}                        describe the position
-    move      {moves, checkpoint, simulations, sample}  search, play the chosen move, describe the result
-    analyse   {moves, checkpoint, simulations}          search without playing
+    move      {moves, opponent, level, simulations, sample}  search, play the chosen move, describe the result
+    analyse   {moves, opponent, level, simulations}          search without playing
 
-simulations == 0 means "no search": the move comes straight from the policy head.
+opponent is "neural" (default: NeuralMCTS with the network of `level`) or "classical"
+(ClassicalMCTS: UCT with random rollouts, no network, `level` is ignored).
+
+The board size and the difficulty levels (id, name, checkpoint file) come from
+config.toml ([board], [[levels]]); a level whose checkpoint doesn't load or was
+trained on a different board size is listed as not ok.
+
+simulations == 0 means "no search": the move comes straight from the policy head
+(neural only; classical needs at least 1).
 sample == false (default) plays the best move: most visits, or highest prior without search.
 sample == true draws the move in proportion to the visit counts (temperature 1),
 or to the policy without search. Either way there is no Dirichlet noise.
 """
 
 import json
-import re
 import sys
+import tomllib
 from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 
-from interface import COLS, ROWS, MCTS, Node, State
+from classical_mcts import ClassicalMCTS
+from game_interface import Node, State
 from model import Model
+from neural_mcts import NeuralMCTS
 
 HERE = Path(__file__).resolve().parent
 MAX_SIMULATIONS = 10000
 
-_checkpoint_info: dict[str, tuple[float, dict]] = {}  # id -> (mtime, listing entry)
-_models: dict[str, tuple[float, Model]] = {}  # id -> (mtime, loaded model)
+with open(HERE / "config.toml", "rb") as f:
+    CFG = tomllib.load(f)
+ROWS = CFG["board"]["rows"]
+COLS = CFG["board"]["cols"]
+MAX_SIM_PLIES = CFG["inference"]["max_moves_per_sim"]
+
+LEVELS = CFG["levels"]  # [{id, name, checkpoint, games}], easiest first
+
+_models: dict[str, tuple[float, Model]] = {}  # level id -> (mtime, loaded model)
 
 
-# --- checkpoints -------------------------------------------------------------
-def _iteration(name: str):
-    m = re.match(r"i(\d+)_", name)
-    return int(m.group(1)) if m else None
+# --- levels --------------------------------------------------------------------
+def _load_level(level: dict) -> Model:
+    """Load a level's checkpoint, cached until the file changes."""
+    path = HERE / level["checkpoint"]
+    mtime = path.stat().st_mtime
+    cached = _models.get(level["id"])
+    if cached is None or cached[0] != mtime:
+        model = Model.load(path).eval()
+        if (model.rows, model.cols) != (ROWS, COLS):
+            raise ValueError(f"trained on a {model.rows}x{model.cols} board, config.toml board is {ROWS}x{COLS}")
+        _models[level["id"]] = (mtime, model)
+    return _models[level["id"]][1]
 
 
-def list_checkpoints() -> list[dict]:
-    """Every checkpoints*/*.pt file, marked ok if it loads into the current Model."""
+def list_levels() -> list[dict]:
+    """The difficulty levels from config.toml, marked ok if their checkpoint loads into the
+    current Model and was trained on the board size in config.toml."""
     out = []
-    for path in HERE.glob("checkpoints*/*.pt"):
-        cid = path.relative_to(HERE).as_posix()
-        mtime = path.stat().st_mtime
-        cached = _checkpoint_info.get(cid)
-        if cached and cached[0] == mtime:
-            out.append(cached[1])
-            continue
-        entry = {"id": cid, "dir": path.parent.name, "name": path.stem, "iter": _iteration(path.stem)}
+    for level in LEVELS:
+        entry = {"id": level["id"], "name": level["name"], "games": level["games"]}
         try:
-            model = Model.load(path).eval()
-            _models[cid] = (mtime, model)
-            entry.update(ok=True, config=torch.load(path, weights_only=True)["config"])
-        except Exception as e:  # noqa: BLE001 -- an old architecture, a corrupt file, ...
+            _load_level(level)
+            entry["ok"] = True
+        except Exception as e:  # noqa: BLE001 -- a missing file, an old architecture, ...
             entry.update(ok=False, error=f"{type(e).__name__}: {str(e).splitlines()[0][:200]}")
-        _checkpoint_info[cid] = (mtime, entry)
         out.append(entry)
-    # random_weights first, then by iteration
-    out.sort(key=lambda e: (e["dir"], e["iter"] is not None, e["iter"] or 0, e["name"]))
     return out
 
 
-def get_model(cid: str) -> Model:
-    """Load a checkpoint by id. Only ids from the scanned listing are accepted."""
-    entries = {e["id"]: e for e in list_checkpoints()}
-    entry = entries.get(cid)
-    if entry is None:
-        raise ValueError(f"unknown checkpoint {cid!r}")
-    if not entry["ok"]:
-        raise ValueError(f"checkpoint {cid!r} does not load: {entry['error']}")
-    mtime = (HERE / cid).stat().st_mtime
-    cached = _models.get(cid)
-    if cached is None or cached[0] != mtime:
-        _models[cid] = (mtime, Model.load(HERE / cid).eval())
-    return _models[cid][1]
+def get_model(level_id) -> Model:
+    """Model for a level id. Only ids from config.toml are accepted, never file paths."""
+    level = next((lv for lv in LEVELS if lv["id"] == level_id), None)
+    if level is None:
+        raise ValueError(f"unknown level {level_id!r}")
+    return _load_level(level)
 
 
 # --- game state ----------------------------------------------------------------
 def replay(moves) -> State:
     if not isinstance(moves, list) or len(moves) > ROWS * COLS:
-        raise ValueError("moves must be a list of at most 42 columns")
+        raise ValueError(f"moves must be a list of at most {ROWS * COLS} columns")
     state = State.from_empty_board(ROWS, COLS)
     for i, m in enumerate(moves):
         if not isinstance(m, int) or isinstance(m, bool):
@@ -128,20 +138,24 @@ def describe(state: State, ply: int) -> dict:
 # --- search --------------------------------------------------------------------
 def _net(model: Model, state: State) -> tuple[float, np.ndarray]:
     """Raw network output: value for the player to move, masked policy over columns."""
-    x = torch.tensor(state.board, dtype=torch.float).reshape(1, 1, ROWS, COLS)
+    x = torch.tensor(state.board, dtype=torch.float).reshape(1, 1, state.rows, state.cols)
     with torch.no_grad():
         value, logits = model(x)
-    mask = torch.full((COLS,), -np.inf)
+    mask = torch.full((state.cols,), -np.inf)
     mask[list(state.allowed_moves)] = 0
     probs = F.softmax(logits[0] + mask, dim=0).numpy()
     return float(value.item()), probs
 
 
-def search(state: State, model: Model, simulations: int, sample: bool = False) -> tuple[int, dict]:
-    if not isinstance(simulations, int) or not 0 <= simulations <= MAX_SIMULATIONS:
-        raise ValueError(f"simulations must be an integer in 0..{MAX_SIMULATIONS}")
+def _check_search_params(simulations, sample, minimum=0):
+    if not isinstance(simulations, int) or isinstance(simulations, bool) or not minimum <= simulations <= MAX_SIMULATIONS:
+        raise ValueError(f"simulations must be an integer in {minimum}..{MAX_SIMULATIONS}")
     if not isinstance(sample, bool):
         raise ValueError("sample must be true or false")
+
+
+def search(state: State, model: Model, simulations: int, sample: bool = False) -> tuple[int, dict]:
+    _check_search_params(simulations, sample)
     net_value, policy = _net(model, state)
     legal = [int(a) for a in state.allowed_moves]
 
@@ -154,11 +168,11 @@ def search(state: State, model: Model, simulations: int, sample: bool = False) -
             move = int(max(legal, key=lambda a: policy[a]))
         rows = [{"move": a, "prior": round(float(policy[a]), 4), "visits": None, "q": None} for a in legal]
         rows.sort(key=lambda r: -r["prior"])
-        return move, {"simulations": 0, "sampled": sample, "search_value": None,
+        return move, {"opponent": "neural", "simulations": 0, "sampled": sample, "search_value": None,
                       "net_value": round(net_value, 4), "moves": rows}
 
     root = Node(node_id=0, state=state)
-    tree = MCTS(root=root, model=model, num_nodes=max(2, simulations), add_noise=False)
+    tree = NeuralMCTS(root=root, model=model, num_nodes=max(2, simulations), add_noise=False)
     tree.build_tree()
     move = int(tree.choose_move(sample=sample))
 
@@ -175,6 +189,7 @@ def search(state: State, model: Model, simulations: int, sample: bool = False) -
         })
     rows.sort(key=lambda r: (-r["visits"], -r["prior"]))
     return move, {
+        "opponent": "neural",
         "simulations": simulations,
         "sampled": sample,
         "search_value": round(root.w / root.n, 4) if root.n else None,
@@ -183,9 +198,57 @@ def search(state: State, model: Model, simulations: int, sample: bool = False) -
     }
 
 
+def classical_search(state: State, simulations: int, sample: bool = False) -> tuple[int, dict]:
+    """ClassicalMCTS (UCT + random rollouts, no network). Same analysis shape as search(),
+    with no priors or network value."""
+    _check_search_params(simulations, sample, minimum=1)
+    root = Node(node_id=0, state=state)
+    tree = ClassicalMCTS(root=root, num_nodes=simulations, max_sim_plies=MAX_SIM_PLIES)
+    tree.build_tree()
+
+    children = {int(a): c for a, c in root.children}
+    if sample:
+        # ClassicalMCTS.choose_move has no sampling, so draw in proportion to the root's visit counts here
+        actions = list(children)
+        visits = np.array([children[a].n for a in actions], dtype=np.float64)
+        move = int(np.random.default_rng().choice(actions, p=visits / visits.sum()))
+    else:
+        move = int(tree.choose_move())
+
+    rows = []
+    for a in (int(a) for a in state.allowed_moves):
+        c = children.get(a)
+        rows.append({
+            "move": a,
+            "prior": None,
+            "visits": c.n if c else 0,
+            # a child's w is from the opponent's point of view, so negate for the player to move
+            "q": round(-c.w / c.n, 4) if c and c.n else None,
+        })
+    rows.sort(key=lambda r: -r["visits"])
+    return move, {
+        "opponent": "classical",
+        "simulations": simulations,
+        "sampled": sample,
+        "search_value": round(root.w / root.n, 4) if root.n else None,
+        "net_value": None,
+        "moves": rows,
+    }
+
+
+def run_search(req, state: State, sample: bool = False) -> tuple[int, dict]:
+    opponent = req.get("opponent", "neural")
+    simulations = req.get("simulations", 100)
+    if opponent == "neural":
+        return search(state, get_model(req.get("level")), simulations, sample)
+    if opponent == "classical":
+        return classical_search(state, simulations, sample)
+    raise ValueError(f"opponent must be 'neural' or 'classical', got {opponent!r}")
+
+
 # --- commands ------------------------------------------------------------------
-def cmd_checkpoints(_req):
-    return {"checkpoints": list_checkpoints()}
+def cmd_levels(_req):
+    return {"levels": list_levels(), "rows": ROWS, "cols": COLS}
 
 
 def cmd_state(req):
@@ -198,7 +261,7 @@ def cmd_analyse(req):
     state = replay(moves)
     if state.game_ended:
         return {"analysis": None, "state": describe(state, len(moves))}
-    _, analysis = search(state, get_model(req.get("checkpoint")), req.get("simulations", 100))
+    _, analysis = run_search(req, state)
     return {"analysis": analysis, "state": describe(state, len(moves))}
 
 
@@ -207,18 +270,17 @@ def cmd_move(req):
     state = replay(moves)
     if state.game_ended:
         raise ValueError("the game is already over")
-    move, analysis = search(state, get_model(req.get("checkpoint")), req.get("simulations", 100),
-                            req.get("sample", False))
+    move, analysis = run_search(req, state, req.get("sample", False))
     after = state.transition_state(move)
     return {"move": move, "analysis": analysis, "state": describe(after, len(moves) + 1)}
 
 
-COMMANDS = {"checkpoints": cmd_checkpoints, "state": cmd_state, "analyse": cmd_analyse, "move": cmd_move}
+COMMANDS = {"levels": cmd_levels, "state": cmd_state, "analyse": cmd_analyse, "move": cmd_move}
 
 
 def main():
     # Replies go to the real stdout; anything else that prints (library warnings,
-    # a stray debug print in interface.py) goes to stderr so it can't corrupt the protocol.
+    # a stray debug print in the game code) goes to stderr so it can't corrupt the protocol.
     out = sys.stdout
     sys.stdout = sys.stderr
     torch.set_grad_enabled(False)

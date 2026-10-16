@@ -3,5 +3,7 @@ ui/dist/
 __pycache__/
 *.pyc
 *.pt
+!/models/*.pt
 /checkpoints
-scratchpad.py.venv/
+scratchpad.py
+.venv/
