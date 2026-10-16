@@ -28,7 +28,6 @@ eval_arena_sample_first_n = 5
 classical_mcts_tree_size = 1000
 max_moves_per_sim = 42
 sample = false
-search = true
 neural_mcts_tree_size = 100
 
 # difficulty levels offered in the web UI (engine.py), easiest first

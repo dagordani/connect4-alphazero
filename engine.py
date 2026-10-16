@@ -29,6 +29,13 @@ simulations == 0 means "no search": the move comes straight from the policy head
 sample == false (default) plays the best move: most visits, or highest prior without search.
 sample == true draws the move in proportion to the visit counts (temperature 1),
 or to the policy without search. Either way there is no Dirichlet noise.
+
+Searches also return `tree`: one event per backpropagation, in order, so the UI
+can replay the tree being built. Each event is [node_id, parent_id, action, value]:
+parent_id/action are -1 when the node already existed (e.g. a terminal node
+visited again). Replaying an event = add the node if new, then apply the same
+update as _backpropagate: walking up from node_id to the root, n += 1 and
+w += value, -value, value, ... (the sign alternates per level).
 """
 
 import json
@@ -136,6 +143,30 @@ def describe(state: State, ply: int) -> dict:
 
 
 # --- search --------------------------------------------------------------------
+def _recording(cls):
+    """Subclass of an MCTS class that logs every _backpropagate call as a tree event."""
+    class Recording(cls):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.events = []
+            self._seen = {self.root.id}
+
+        def _backpropagate(self, node, val):
+            super()._backpropagate(node, val)
+            if node.id in self._seen:
+                self.events.append([node.id, -1, -1, round(float(val), 6)])
+            else:
+                self._seen.add(node.id)
+                action = next(a for a, c in node.parent.children if c is node)
+                self.events.append([node.id, node.parent.id, int(action), round(float(val), 6)])
+
+    return Recording
+
+
+RecordingNeuralMCTS = _recording(NeuralMCTS)
+RecordingClassicalMCTS = _recording(ClassicalMCTS)
+
+
 def _net(model: Model, state: State) -> tuple[float, np.ndarray]:
     """Raw network output: value for the player to move, masked policy over columns."""
     x = torch.tensor(state.board, dtype=torch.float).reshape(1, 1, state.rows, state.cols)
@@ -172,7 +203,7 @@ def search(state: State, model: Model, simulations: int, sample: bool = False) -
                       "net_value": round(net_value, 4), "moves": rows}
 
     root = Node(node_id=0, state=state)
-    tree = NeuralMCTS(root=root, model=model, num_nodes=max(2, simulations), add_noise=False)
+    tree = RecordingNeuralMCTS(root=root, model=model, num_nodes=max(2, simulations), add_noise=False)
     tree.build_tree()
     move = int(tree.choose_move(sample=sample))
 
@@ -195,6 +226,7 @@ def search(state: State, model: Model, simulations: int, sample: bool = False) -
         "search_value": round(root.w / root.n, 4) if root.n else None,
         "net_value": round(net_value, 4),
         "moves": rows,
+        "tree": tree.events,
     }
 
 
@@ -203,7 +235,7 @@ def classical_search(state: State, simulations: int, sample: bool = False) -> tu
     with no priors or network value."""
     _check_search_params(simulations, sample, minimum=1)
     root = Node(node_id=0, state=state)
-    tree = ClassicalMCTS(root=root, num_nodes=simulations, max_sim_plies=MAX_SIM_PLIES)
+    tree = RecordingClassicalMCTS(root=root, num_nodes=simulations, max_sim_plies=MAX_SIM_PLIES)
     tree.build_tree()
 
     children = {int(a): c for a, c in root.children}
@@ -233,6 +265,7 @@ def classical_search(state: State, simulations: int, sample: bool = False) -> tu
         "search_value": round(root.w / root.n, 4) if root.n else None,
         "net_value": None,
         "moves": rows,
+        "tree": tree.events,
     }
 
 

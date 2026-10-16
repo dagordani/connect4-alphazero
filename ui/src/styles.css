@@ -48,13 +48,69 @@ body {
 
 .app {
   display: flex;
-  flex-wrap: wrap;
-  gap: 24px;
-  align-items: flex-start;
-  justify-content: center;
-  max-width: 1000px;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1500px;
   margin: 0 auto;
-  padding: 24px 16px;
+  padding: 20px 16px;
+}
+
+.app > h1 {
+  margin: 0;
+}
+
+/* top row: controls (fixed 2 x 3 grid) and search stats in the space to their right;
+   bottom row: board and search tree */
+.top,
+.play {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 16px;
+}
+
+.top {
+  grid-template-areas: 'controls stats';
+  align-items: stretch;
+}
+
+.play {
+  grid-template-areas: 'game tree';
+  align-items: start;
+}
+
+.controls {
+  grid-area: controls;
+}
+
+.stats {
+  grid-area: stats;
+}
+
+.game {
+  grid-area: game;
+}
+
+.tree-panel {
+  grid-area: tree;
+}
+
+/* narrower screens: stats under the controls, then the tree under the board */
+@media (max-width: 1100px) {
+  .top {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'controls' 'stats';
+  }
+}
+
+@media (max-width: 1000px) {
+  .play {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'game' 'tree';
+  }
+
+  .game {
+    justify-self: center;
+  }
 }
 
 h1,
@@ -235,16 +291,7 @@ h2 {
   background: var(--yellow);
 }
 
-/* --- side panels --------------------------------------------------------- */
-.side {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 16px;
-  min-width: 280px;
-  max-width: 420px;
-}
-
+/* --- panels -------------------------------------------------------------- */
 .panel {
   padding: 16px;
   border: 1px solid var(--line);
@@ -371,18 +418,356 @@ th {
   color: var(--muted);
 }
 
-.bar {
-  display: block;
-  height: 4px;
-  margin-top: 2px;
-  border-radius: 2px;
-  background: var(--accent);
-}
-
 .note {
   margin: 14px 0 0;
   padding-top: 10px;
   border-top: 1px solid var(--line);
   font-size: 12px;
+  color: var(--muted);
+}
+
+/* --- top bar: controls and search stats ----------------------------------- */
+/* A fixed 2 x 3 grid instead of free wrapping: fields keep their slots as the window
+   (or browser zoom) changes; only phone widths switch to a single column. */
+.controls {
+  display: grid;
+  grid-template-columns: 300px 340px;
+  grid-template-areas:
+    'opponent level'
+    'side sims'
+    'choice game';
+  gap: 12px 24px;
+  align-items: start;
+  padding: 12px 16px;
+}
+
+.f-opponent { grid-area: opponent; }
+.f-level { grid-area: level; }
+.f-side { grid-area: side; }
+.f-sims { grid-area: sims; }
+.f-choice { grid-area: choice; }
+.f-game { grid-area: game; }
+
+@media (max-width: 700px) {
+  .controls {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'opponent' 'level' 'side' 'sims' 'choice' 'game';
+  }
+}
+
+.controls .buttons {
+  display: flex;
+  flex-wrap: nowrap;
+}
+
+.controls button {
+  white-space: nowrap;
+}
+
+.field {
+  min-width: 0;
+}
+
+.field > label:first-child {
+  margin-top: 0;
+}
+
+.field .buttons {
+  margin-top: 0;
+}
+
+.field label.check {
+  margin-top: 0;
+}
+
+.stats h2 {
+  margin-bottom: 8px;
+}
+
+.stats-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 40px;
+  align-items: center;
+}
+
+.stats-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.stats-table {
+  width: auto;
+  margin-top: 0;
+}
+
+.stats-table th,
+.stats-table td {
+  min-width: 52px;
+  text-align: right;
+}
+
+@media (max-width: 600px) {
+  .stats-table th,
+  .stats-table td {
+    min-width: 0;
+    padding: 4px;
+    font-size: 12px;
+  }
+
+}
+
+.stats-table th:first-child,
+.stats-table td:first-child {
+  min-width: 0;
+  text-align: left;
+}
+
+.stats .note {
+  flex: 1 1 100%;
+  margin: 0;
+  padding: 10px 0 0;
+}
+
+/* --- search tree ------------------------------------------------------------ */
+.tree-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: calc(var(--cell) * 7 + 120px);
+  min-height: 420px;
+}
+
+.tree-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+
+.tree-head h2 {
+  margin: 0;
+}
+
+.tree-head .meta {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.tree-tools {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-left: auto;
+}
+
+.tree-tools button {
+  margin: 0;
+}
+
+.tree-tools label.check {
+  margin: 0;
+}
+
+.tree-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  cursor: grab;
+  touch-action: none;
+}
+
+.tree-scroll:active {
+  cursor: grabbing;
+}
+
+.tree-scroll svg {
+  display: block;
+  margin: 0 auto;
+}
+
+.tree-empty {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  border: 1px dashed var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.edge {
+  stroke: var(--muted);
+  stroke-opacity: 0.5;
+  stroke-width: 1.2;
+}
+
+.edge.hot {
+  stroke: var(--accent);
+  stroke-opacity: 1;
+  stroke-width: 3;
+}
+
+.edge-label {
+  fill: var(--bad);
+  font: 600 11px ui-monospace, monospace;
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 4px;
+}
+
+.node circle {
+  stroke: var(--accent);
+  stroke-width: 1;
+}
+
+.node.hot circle {
+  stroke: var(--bad);
+  stroke-width: 3;
+}
+
+.node text {
+  fill: var(--ink);
+  font: 9px ui-sans-serif, system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+.node.dark text {
+  fill: #fff;
+}
+
+/* --- network output (0 simulations) ---------------------------------------- */
+/* value head above policy head, always */
+.net-view {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 28px;
+  align-items: center;
+  padding: 12px 8px;
+  overflow-y: auto;
+}
+
+.net-value,
+.policy {
+  width: 100%;
+  max-width: 560px;
+}
+
+.head-title {
+  margin: 0 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 2px solid var(--accent);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.net-value .meter,
+.net-value .meter-scale {
+  max-width: 360px;
+}
+
+.meter {
+  position: relative;
+  height: 12px;
+  margin-top: 16px;
+  border-radius: 6px;
+  background: linear-gradient(to right, var(--bad), var(--line) 50%, var(--accent));
+}
+
+.meter-mid {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  left: 50%;
+  width: 1px;
+  background: var(--muted);
+}
+
+.meter-mark {
+  position: absolute;
+  top: -5px;
+  width: 6px;
+  height: 22px;
+  margin-left: -3px;
+  border-radius: 3px;
+  background: var(--ink);
+}
+
+.meter-scale {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.policy {
+  display: flex;
+  flex-direction: column;
+}
+
+.policy-bars {
+  display: flex;
+  gap: 8px;
+  height: 200px;
+  margin-top: 28px;
+}
+
+.policy-col {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.policy-track {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: flex-end;
+  border-bottom: 1px solid var(--line);
+}
+
+.policy-bar {
+  position: relative;
+  width: 100%;
+  min-height: 2px;
+  border-radius: 3px 3px 0 0;
+  background: var(--accent);
+  opacity: 0.55;
+}
+
+.policy-bar.top {
+  opacity: 1;
+}
+
+.policy-bar span {
+  position: absolute;
+  top: -18px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.policy-label {
+  margin-top: 4px;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  text-align: center;
   color: var(--muted);
 }

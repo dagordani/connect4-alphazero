@@ -4,7 +4,9 @@ import { api } from './api.js';
 import Board from './components/Board.jsx';
 import Controls from './components/Controls.jsx';
 import SearchPanel from './components/SearchPanel.jsx';
+import TreeView from './components/TreeView.jsx';
 import { capitalize } from './game.js';
+import { TreeReplay } from './tree.js';
 
 // The API is stateless: this component owns the list of columns played (`moves`)
 // and sends it with every request. `game` is the server's description of the
@@ -17,6 +19,25 @@ function defaultLevel(levels) {
 
 // Classical MCTS needs no network; neural MCTS needs a level.
 const hasEngine = (s) => s.opponent === 'classical' || Boolean(s.level);
+
+// The tree replay shows one more node per frame; bigger searches add several per
+// frame so no animation takes longer than about MAX_FRAMES / 60 seconds.
+const MAX_FRAMES = 240;
+
+// The analysis as of the current replay step: N, Q and the search value come from
+// the replayed tree, so the panels count up with the animation.
+function liveAnalysis(analysis, tree) {
+  if (!analysis?.tree) return analysis;
+  const kids = new Map(tree.root.children.map((c) => [c.action, c]));
+  return {
+    ...analysis,
+    search_value: tree.root.n ? tree.root.w / tree.root.n : null,
+    moves: analysis.moves.map((m) => {
+      const c = kids.get(m.move);
+      return { ...m, visits: c ? c.n : 0, q: c?.n ? -c.w / c.n : null };
+    }),
+  };
+}
 
 export default function App() {
   const [levels, setLevels] = useState([]);
@@ -34,8 +55,19 @@ export default function App() {
   const [animate, setAnimate] = useState(false); // drop animation only for new moves, not undo
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [step, setStep] = useState(0); // tree events replayed so far
+  const [animating, setAnimating] = useState(false);
   const busyRef = useRef(false);
   const started = useRef(false);
+  const skipRef = useRef(false);
+
+  // Replay of analysis.tree up to `step`, rebuilt when a new analysis arrives.
+  const replayRef = useRef(null);
+  const events = analysis?.tree ?? null;
+  if (!replayRef.current || replayRef.current.events !== events) replayRef.current = new TreeReplay(events ?? []);
+  replayRef.current.advanceTo(step);
+  const tree = replayRef.current;
+  const live = liveAnalysis(analysis, tree);
 
   // Serialise server calls: a search can take a while and clicks arrive fast.
   async function run(task) {
@@ -60,8 +92,32 @@ export default function App() {
     setAnimate(isNewMove);
   }
 
+  // Show a new analysis and replay its tree one node at a time; resolves when done.
+  function playTree(newAnalysis) {
+    setAnalysis(newAnalysis);
+    const total = newAnalysis?.tree?.length ?? 0;
+    setStep(0);
+    if (!total) return Promise.resolve();
+    const perFrame = Math.max(1, Math.ceil(total / MAX_FRAMES));
+    skipRef.current = false;
+    setAnimating(true);
+    return new Promise((resolve) => {
+      let k = 0;
+      const tick = () => {
+        k = skipRef.current ? total : Math.min(total, k + perFrame);
+        setStep(k);
+        if (k < total) return requestAnimationFrame(tick);
+        setAnimating(false);
+        resolve();
+      };
+      requestAnimationFrame(tick);
+    });
+  }
+
+  // The engine's disc drops once its search tree has finished drawing.
   async function engineMove(current, s) {
     const res = await api.move(current, s);
+    await playTree(res.analysis);
     show([...current, res.move], res.state, res.analysis, true);
   }
 
@@ -72,7 +128,8 @@ export default function App() {
     if (hasEngine(s) && state.turn !== s.human) await engineMove([], s);
   }
 
-  // Changing the opponent or your side starts a new game with the new settings.
+  // Changing your side starts a new game with the new settings (`restart`); switching the
+  // difficulty level or between neural and classical search continues the current game.
   function changeSettings(patch, restart) {
     const next = { ...settings, ...patch };
     setSettings(next);
@@ -119,39 +176,25 @@ export default function App() {
   function hint() {
     run(async () => {
       const res = await api.analyse(moves, settings);
-      setAnalysis(res.analysis);
+      await playTree(res.analysis);
     });
   }
 
   return (
     <main className="app">
-      <section className="game">
-        <h1>Connect 4</h1>
-        {game && (
-          <Board
-            board={game.board}
-            lastMove={moves.length ? moves[moves.length - 1] : null}
-            animate={animate}
-            canPlay={yourTurn && !busy}
-            legal={game.legal}
-            humanColor={settings.human}
-            analysis={analysis}
-            onPlay={play}
-          />
-        )}
-        <Status game={game} human={settings.human} busy={busy} error={error} />
-      </section>
+      <h1>Connect 4</h1>
 
-      <aside className="side">
+      <div className="top">
         <Controls
           opponent={settings.opponent}
           onOpponent={(opponent) =>
-            // classical has no policy-only mode, so 0 simulations becomes 1
-            changeSettings({ opponent, simulations: opponent === 'classical' ? Math.max(1, settings.simulations) : settings.simulations }, true)
+            // switching search keeps the game going: the new opponent plays the next engine move.
+            // Classical has no policy-only mode, so 0 simulations becomes 1.
+            changeSettings({ opponent, simulations: opponent === 'classical' ? Math.max(1, settings.simulations) : settings.simulations }, false)
           }
           levels={levels}
           level={settings.level}
-          onLevel={(level) => changeSettings({ level }, true)}
+          onLevel={(level) => changeSettings({ level }, false)}
           human={settings.human}
           onHuman={(human) => changeSettings({ human }, true)}
           simulations={settings.simulations}
@@ -168,8 +211,36 @@ export default function App() {
           onEngineMove={() => run(() => engineMove(moves, settings))}
           onHint={hint}
         />
-        <SearchPanel analysis={analysis} />
-      </aside>
+
+        <SearchPanel analysis={live} />
+      </div>
+
+      <div className="play">
+        <section className="game">
+          {game && (
+            <Board
+              board={game.board}
+              lastMove={moves.length ? moves[moves.length - 1] : null}
+              animate={animate}
+              canPlay={yourTurn && !busy}
+              legal={game.legal}
+              humanColor={settings.human}
+              analysis={live}
+              onPlay={play}
+            />
+          )}
+          <Status game={game} human={settings.human} busy={busy} error={error} />
+        </section>
+
+        <TreeView
+          analysis={analysis}
+          tree={tree}
+          step={step}
+          animating={animating}
+          busy={busy}
+          onSkip={() => (skipRef.current = true)}
+        />
+      </div>
     </main>
   );
 }

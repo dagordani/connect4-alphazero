@@ -44,7 +44,7 @@ def play_vs_classical_MCTS(rows: int, cols: int, num_nodes: int, max_sim_plies: 
             break
     return
 
-def play_vs_neural_MCTS(rows: int, cols: int, model: Model, sample: bool, search: bool, num_nodes: int):
+def play_vs_neural_MCTS(rows: int, cols: int, model: Model, sample: bool, num_nodes: int):
     plies = 0
     user_state = State.from_empty_board(rows, cols)
     while not user_state.game_ended:
@@ -66,12 +66,14 @@ def play_vs_neural_MCTS(rows: int, cols: int, model: Model, sample: bool, search
             print(ai_state)
             break
 
-        if search:
+        if num_nodes > 0:
+            # run model with search
             root = Node(node_id=0, state=ai_state)
             tree = NeuralMCTS(root=root, model=model, num_nodes=num_nodes, add_noise=False)
             tree.build_tree()
             ai_action = tree.choose_move(sample=sample)
         else:
+            # run model without search
             # turn state into tensor
             x = torch.tensor(ai_state.board, dtype=torch.float).reshape(1, 1, ai_state.rows, ai_state.cols)
     

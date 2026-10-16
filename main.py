@@ -89,6 +89,5 @@ if __name__ == '__main__':
             net = Model.load(args.checkpoint)
             net.eval()
             sample = cfg["inference"]["sample"]
-            search = cfg["inference"]["search"]
             neural_mcts_tree_size = cfg["inference"]["neural_mcts_tree_size"]
-            play_vs_neural_MCTS(rows=rows, cols=cols, model=net, sample=sample, search=search, num_nodes=neural_mcts_tree_size)
+            play_vs_neural_MCTS(rows=rows, cols=cols, model=net, sample=sample, num_nodes=neural_mcts_tree_size)
