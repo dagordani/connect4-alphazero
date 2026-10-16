@@ -85,31 +85,14 @@ cd ui && npm run parity
 
 Run it after changing either side.
 
-## Deploy to Vercel
-
-The web app is a static site, so it runs on Vercel's free tier with no backend.
-
-1. Commit everything, including `ui/public/models/*.onnx` and `ui/public/app-config.json`
-   (Vercel only runs `npm`, so the exported models must be in the repo).
-2. Push the repo to GitHub, e.g. `gh repo create connect4-alphazero --public --source . --push`.
-3. On [vercel.com](https://vercel.com): **Add New → Project**, import the repo, set
-   **Root Directory** to `ui` (Vercel detects Vite: build `npm run build`, output `dist`), **Deploy**.
-4. Every push to `main` redeploys; pull requests get preview URLs.
-
-Or from the terminal: `cd ui && npx vercel` (preview) and `npx vercel --prod`.
-
-To check the production build locally first: `cd ui && npm run build && npm run preview`.
-
 # TODO:
-* create formal Logs from training
-* create webapp to play vs AI and visualize tree building
-* allow user to select number of games or average positions model was trained on, and number of nodes or moves-look-ahead (tree height - on average) for inference
-* also with/without search and with/without sampling
+* save logs from training
+* show number of unique positions and number of total positions the model was trained on in the UI
+* show the number of look-ahead moves (average tree height) the model was trained on
 
 # fun TODO:
-* print avg height of trees in self-play (need to add self.level attribute to MCTS class)
-* implement training with Apple accelerator
-* do value batching by doing search in parallel and in steplock do inference of 640 nodes (batch_size) in different trees
-* experiment adding data augmentation in get_batch with 50% change
-* experiment training with much larger trees
+* implement training with accelerator
+* add value batching to do search in parallel (speedup self-play game generation)
+* data augmentation, ex: sample flipped board around y-axis in get_batch() with 50% change, probs tensor would also have to be flipped, value remains the same
+* experiment training with much larger trees to see if policy becomes confidently wrong (not enough variance in decisions/games)
 * experiment using much larger network / batchnorm in heads / using max(columns) in policy head
